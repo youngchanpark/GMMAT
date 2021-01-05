@@ -25,14 +25,14 @@ SMMAT <- function(null.obj, geno.file, group.file,
   n.pheno <- null.obj$n.pheno
   missing.method <- try(match.arg(missing.method, c("impute2mean", "impute2zero")))
   if (class(missing.method) == "try-error") {
-    stop("Error: \"missing.method\" must be \"impute2mean\" or \"impute2zero\".")
+    stop('Error: "missing.method" must be "impute2mean" or "impute2zero".')
   }
   if (any(!tests %in% c("B", "S", "O", "E"))) {
     stop(paste0(
-		'Error: "tests" should only include "B" for the burden test, ',
-		'"S" for SKAT, "O" for SKAT-O or "E" for the efficient hybrid ',
-		'test of the burden test and SKAT.'
-	))
+    'Error: "tests" should only include "B" for the burden test, ',
+    '"S" for SKAT, "O" for SKAT-O or "E" for the efficient hybrid ',
+    'test of the burden test and SKAT.'
+    ))
   }
   Burden <- "B" %in% tests
   SKAT   <- "S" %in% tests
@@ -93,7 +93,12 @@ SMMAT <- function(null.obj, geno.file, group.file,
   variant.id <- paste(chr, pos, ref, alt, sep = ":")
   rm(chr, pos, ref, alt)
   gc()
-  group.info <- try(read.table(group.file, header = FALSE, col.names = c("group", "chr", "pos", "ref", "alt", "weight"), colClasses = c("character","character","integer","character","character","numeric"), sep = group.file.sep), silent = TRUE)
+  group.info <- try(
+    read.table(group.file,
+               header = FALSE,
+               col.names = c("group", "chr", "pos", "ref", "alt", "weight"),
+               colClasses = c("character", "character", "integer", "character", "character", "numeric"),
+               sep = group.file.sep), silent = TRUE)
   if (class(group.info) == "try-error") {
     stop("Error: cannot read group.file!")
   }
@@ -103,8 +108,16 @@ SMMAT <- function(null.obj, geno.file, group.file,
   group.info$variant.idx <- variant.idx1
   group.info$flip <- 0
   if (auto.flip) {
-    cat("Automatic allele flipping enabled...\nVariants matching alt/ref but not ref/alt alleles will also be included, with flipped effects\n")
-    variant.id2 <- paste(group.info$chr, group.info$pos, group.info$alt, group.info$ref, sep = ":")
+    cat(paste0(
+      "Automatic allele flipping enabled...\n",
+      "Variants matching alt/ref but not ref/alt ",
+      "alleles will also be included, with flipped effects\n"
+  ))
+    variant.id2 <- paste(group.info$chr,
+                         group.info$pos,
+                         group.info$alt,
+                         group.info$ref,
+                         sep = ":")
     variant.idx2 <- variant.idx[match(variant.id2, variant.id)]
     if (any(!is.na(variant.idx1) & !is.na(variant.idx2))) {
       tmp.dups <- which(!is.na(variant.idx1) & !is.na(variant.idx2))
@@ -113,7 +126,13 @@ SMMAT <- function(null.obj, geno.file, group.file,
       cat("pos:", pos[tmp.dups], "\n")
       cat("ref:", ref[tmp.dups], "\n")
       cat("alt:", alt[tmp.dups], "\n")
-      cat("Warning: both variants with alleles ref/alt and alt/ref were present at the same position and coding should be double checked!\nFor these variants, only those with alleles ref/alt were used in the analysis...\n")
+      cat(paste0(
+        "Warning: both variants with alleles ref/alt ",
+        "and alt/ref were present at the same position ",
+        "and coding should be double checked!\n",
+        "For these variants, only those with alleles ",
+        "ref/alt were used in the analysis...\n"
+      ))
       variant.idx2[tmp.dups] <- NA
       rm(tmp.dups)
     }
@@ -132,184 +151,194 @@ SMMAT <- function(null.obj, geno.file, group.file,
   group.idx.end <- findInterval(1:n.groups.all, group.info$group.idx)
   group.idx.start <- c(1, group.idx.end[-n.groups.all] + 1)
   ncores <- min(c(ncores, parallel::detectCores(logical = TRUE)))
+  
+  
   if (ncores > 1) {
     doMC::registerDoMC(cores = ncores)
     n.groups.percore <- (n.groups.all-1) %/% ncores + 1
     n.groups.percore_1 <- n.groups.percore * ncores - n.groups.all
     b <- NULL
-    out <- foreach(b=1:ncores,
-	               .combine=rbind,
-				   .multicombine = TRUE,
-				   .inorder=FALSE,
-				   .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
-    idx <- if(b <= n.groups.percore_1) ((b-1)*(n.groups.percore-1)+1):(b*(n.groups.percore-1)) else (n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1-1)*n.groups.percore+1):(n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1)*n.groups.percore)
-    n.groups <- length(idx)
-    if(verbose) {
-      if(b==1) cat("Progress of SMMAT:\n")
-      pb <- txtProgressBar(min = 0, max = n.groups, style = 3)
-      cat("\n")
-    }
-    gds <- SeqArray::seqOpen(geno.file)
-    SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
-    n.variants <- rep(0,n.groups)
-    miss.min <- rep(NA,n.groups)
-    miss.mean <- rep(NA, n.groups)
-    miss.max <- rep(NA, n.groups)
-    freq.min <- rep(NA, n.groups)
-    freq.mean <- rep(NA, n.groups)
-    freq.max <- rep(NA, n.groups)
-    if (Burden | SKATO | SMMAT) {
-      Burden.score <- rep(NA, n.groups)
-      Burden.var <- rep(NA, n.groups)
-      Burden.pval <- rep(NA, n.groups)
-    }
-    if (SKAT | SKATO) {
-	  SKAT.pval <- rep(NA, n.groups)
-	}
-    if (SKATO) {
-      SKATO.pval <- rep(NA, n.groups)
-      SKATO.minp <- rep(NA, n.groups)
-      SKATO.minp.rho <- rep(NA, n.groups)
-    }
-    if (SMMAT) {
-	  SMMAT.pval <- rep(NA, n.groups)
-	}
-    if (!is.null(meta.file.prefix)) {
-      if (class(null.obj) == "glmmkin.multi") {
-		stop("Error: meta-analysis not supported yet for multiple phenotypes.")
-	  }
-      if (.Platform$endian!="little") {
-		stop("Error: platform must be little endian.")
-	  }
-      meta.file.score <- paste0(meta.file.prefix, ".score.", b)
-      meta.file.var <- paste0(meta.file.prefix, ".var.", b)
-      write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE", "VAR", "PVAL")), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
-      meta.file.var.handle <- file(meta.file.var, "wb")
-    }
-    for(i in 1:n.groups) {
-      if (verbose && i %% ceiling(n.groups/100) == 0) {
-	    setTxtProgressBar(pb, i)
-	  }
-      tmp.idx <- group.idx.start[idx[i]]:group.idx.end[idx[i]]
-      tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
-      SeqArray::seqSetFilter(gds, variant.id = tmp.group.info$variant.idx, verbose = FALSE)
-      geno <- if(is.dosage) SeqVarTools::imputedDosage(gds, use.names = FALSE) else SeqVarTools::altDosage(gds, use.names = FALSE)
-      miss <- colMeans(is.na(geno))
-      freq <- colMeans(geno, na.rm = TRUE)/2
-      include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
-      n.p <- sum(include)
-      if (n.p == 0) {
-		next
-	  }
-      tmp.group.info <- tmp.group.info[include, , drop = FALSE]
-      miss <- miss[include]
-      freq <- freq[include]
-      geno <- geno[, include, drop = FALSE]
-      N <- nrow(geno) - colSums(is.na(geno))
-      if (sum(tmp.group.info$flip) > 0) {
-        freq[tmp.group.info$flip==1] <- 1 - freq[tmp.group.info$flip==1]
-        geno[, tmp.group.info$flip==1] <- 2 - geno[, tmp.group.info$flip==1]
-      }
-      if (max(miss)>0) {
-        miss.idx <- which(is.na(geno))
-        geno[miss.idx] <- if(missing.method=="impute2mean") 2*freq[ceiling(miss.idx/nrow(geno))] else 0
-      }
-      U <- as.vector(crossprod(geno, residuals))
-      if (class(null.obj) == "glmmkin.multi") {
-		geno <- Diagonal(n = n.pheno) %x% geno
-	  }
-      if (!is.null(null.obj$P)) {
-		V <- crossprod(geno, crossprod(null.obj$P, geno))
-	  } else {
-        GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-        V <- crossprod(geno, crossprod(null.obj$Sigma_i, geno)) - tcrossprod(GSigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
-      }
-      V <- as.matrix(V)
-      if (!is.null(meta.file.prefix)) {
-        VAR <- diag(V)
-        PVAL <- ifelse(VAR>0, pchisq(U^2/VAR, df=1, lower.tail=FALSE), NA)
-        write.table(cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, VAR, PVAL), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
-        writeBin(V[lower.tri(V, diag = TRUE)], meta.file.var.handle, size = 4)
-      }
-      if (use.minor.allele) {
-        tmp.group.info$weight[freq > 0.5] <- -tmp.group.info$weight[freq > 0.5]
-        freq[freq > 0.5] <- 1 - freq[freq > 0.5]
-      }
-      weights <- rep(tmp.group.info$weight * MAF.weights.beta.fun(freq, MAF.weights.beta[1], MAF.weights.beta[2]), n.pheno)
-      n.variants[i] <- n.p
-      miss.min[i]  <- min(miss)
-      miss.mean[i] <- mean(miss)
-      miss.max[i]  <- max(miss)
-      freq.min[i]  <- min(freq)
-      freq.mean[i] <- mean(freq)
-      freq.max[i]  <- max(freq)
-      U <- U*weights
-      V <- t(V*weights)*weights
-      if (max(V)-min(V) < sqrt(.Machine$double.eps)) {
-        burden.score <- sum(U)
-        burden.var <- sum(V)
-        burden.pval <- pchisq(burden.score^2/burden.var, df=1, lower.tail=FALSE)
-        if (Burden | SKATO | SMMAT) {
-          Burden.score[i] <- burden.score
-          Burden.var[i] <- burden.var
-          Burden.pval[i] <- burden.pval
-        }
-        if (SKAT | SKATO) {
-		  SKAT.pval[i] <- burden.pval
-		}
-		if(SKATO) {
-          SKATO.pval[i] <- burden.pval
-          SKATO.minp[i] <- burden.pval
-          SKATO.minp.rho[i] <- 1
-        }
-        if (SMMAT) {
-		  SMMAT.pval[i] <- burden.pval
-		}
+    out <- foreach(b = 1:ncores,
+                   .combine = rbind,
+                   .multicombine = TRUE,
+                   .inorder = FALSE,
+                   .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
+      #idx <- if(b <= n.groups.percore_1) ((b-1)*(n.groups.percore-1)+1):(b*(n.groups.percore-1)) else (n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1-1)*n.groups.percore+1):(n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1)*n.groups.percore)
+      if (b <= n.groups.percore_1) {
+        idx <- ((b-1)*(n.groups.percore-1)+1):(b*(n.groups.percore-1))
       } else {
-        if(SKATO) {
-          re <- .skato_pval(U = U, V = V, rho = rho, method = method)
-          Burden.score[i] <- re$Burden.score
-          Burden.var[i] <- re$Burden.var
-          Burden.pval[i] <- re$Burden.pval
-          SKAT.pval[i] <- re$SKAT.pval
-          SKATO.pval[i] <-re$p
-          SKATO.minp[i] <- re$minp
-          SKATO.minp.rho[i] <- re$minp.rho
-        } else {
-          if (SKAT) {
-			SKAT.pval[i] <- .quad_pval(U = U, V = V, method = method)
-		  }
-          if (Burden | SMMAT) {
-            Burden.score[i] <- sum(U)
-            Burden.var[i] <- sum(V)
-            Burden.pval[i] <- pchisq(Burden.score[i]^2/Burden.var[i], df=1, lower.tail=FALSE)
-          }
+        idx <- (n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1-1)*n.groups.percore+1):(n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1)*n.groups.percore)
+      }
+      n.groups <- length(idx)
+      if (verbose) {
+        if (b==1) {
+          cat("Progress of SMMAT:\n")
         }
-        if (SMMAT) {
-          V.rowSums <- rowSums(V)
-          U <- U - V.rowSums * Burden.score[i] / Burden.var[i]
-          V <- V - tcrossprod(V.rowSums) / Burden.var[i]
-          if (mean(abs(V)) < sqrt(.Machine$double.eps)) {
-			SMMAT.pval[i] <- Burden.pval[i]
-		  } else {
-			  SMMAT.pval[i] <- tryCatch(pchisq(-2*log(Burden.pval[i])-2*log(.quad_pval(U = U, V = V, method = method)), df = 4, lower.tail = FALSE), error = function(e) { Burden.pval[i] })
+        pb <- txtProgressBar(min = 0, max = n.groups, style = 3)
+        cat("\n")
+      }
+      gds <- SeqArray::seqOpen(geno.file)
+      SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
+      n.variants <- rep(0,n.groups)
+      miss.min <- rep(NA,n.groups)
+      miss.mean <- rep(NA, n.groups)
+      miss.max <- rep(NA, n.groups)
+      freq.min <- rep(NA, n.groups)
+      freq.mean <- rep(NA, n.groups)
+      freq.max <- rep(NA, n.groups)
+      if (Burden | SKATO | SMMAT) {
+        Burden.score <- rep(NA, n.groups)
+        Burden.var <- rep(NA, n.groups)
+        Burden.pval <- rep(NA, n.groups)
+      }
+      if (SKAT | SKATO) {
+        SKAT.pval <- rep(NA, n.groups)
+      }
+      if (SKATO) {
+        SKATO.pval <- rep(NA, n.groups)
+        SKATO.minp <- rep(NA, n.groups)
+        SKATO.minp.rho <- rep(NA, n.groups)
+      }
+      if (SMMAT) {
+        SMMAT.pval <- rep(NA, n.groups)
+      }
+      if (!is.null(meta.file.prefix)) {
+        if (class(null.obj) == "glmmkin.multi") {
+          stop("Error: meta-analysis not supported yet for multiple phenotypes.")
+        }
+        if (.Platform$endian!="little") {
+          stop("Error: platform must be little endian.")
+        }
+        meta.file.score <- paste0(meta.file.prefix, ".score.", b)
+        meta.file.var <- paste0(meta.file.prefix, ".var.", b)
+        write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE", "VAR", "PVAL")), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
+        meta.file.var.handle <- file(meta.file.var, "wb")
+      }
+      for (i in 1:n.groups) {
+        if (verbose && i %% ceiling(n.groups/100) == 0) {
+          setTxtProgressBar(pb, i)
+        }
+        tmp.idx <- group.idx.start[idx[i]]:group.idx.end[idx[i]]
+        tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
+        SeqArray::seqSetFilter(gds, variant.id = tmp.group.info$variant.idx, verbose = FALSE)
+        geno <- if(is.dosage) SeqVarTools::imputedDosage(gds, use.names = FALSE) else SeqVarTools::altDosage(gds, use.names = FALSE)
+        miss <- colMeans(is.na(geno))
+        freq <- colMeans(geno, na.rm = TRUE)/2
+        include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
+        n.p <- sum(include)
+        if (n.p == 0) {
+          next
+        }
+        tmp.group.info <- tmp.group.info[include, , drop = FALSE]
+        miss <- miss[include]
+        freq <- freq[include]
+        geno <- geno[, include, drop = FALSE]
+        N <- nrow(geno) - colSums(is.na(geno))
+        if (sum(tmp.group.info$flip) > 0) {
+          freq[tmp.group.info$flip==1] <- 1 - freq[tmp.group.info$flip==1]
+          geno[, tmp.group.info$flip==1] <- 2 - geno[, tmp.group.info$flip==1]
+        }
+        if (max(miss)>0) {
+          miss.idx <- which(is.na(geno))
+          geno[miss.idx] <- if(missing.method=="impute2mean") 2*freq[ceiling(miss.idx/nrow(geno))] else 0
+        }
+        U <- as.vector(crossprod(geno, residuals))
+        if (class(null.obj) == "glmmkin.multi") {
+          geno <- Diagonal(n = n.pheno) %x% geno
+        }
+        if (!is.null(null.obj$P)) {
+          V <- crossprod(geno, crossprod(null.obj$P, geno))
+        } else {
+          GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
+          V <- crossprod(geno, crossprod(null.obj$Sigma_i, geno)) - tcrossprod(GSigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+        }
+        V <- as.matrix(V)
+        if (!is.null(meta.file.prefix)) {
+          VAR <- diag(V)
+          PVAL <- ifelse(VAR>0, pchisq(U^2/VAR, df=1, lower.tail=FALSE), NA)
+          write.table(cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, VAR, PVAL), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
+          writeBin(V[lower.tri(V, diag = TRUE)], meta.file.var.handle, size = 4)
+        }
+        if (use.minor.allele) {
+          tmp.group.info$weight[freq > 0.5] <- -tmp.group.info$weight[freq > 0.5]
+          freq[freq > 0.5] <- 1 - freq[freq > 0.5]
+        }
+        weights <- rep(tmp.group.info$weight * MAF.weights.beta.fun(freq, MAF.weights.beta[1], MAF.weights.beta[2]), n.pheno)
+        n.variants[i] <- n.p
+        miss.min[i]  <- min(miss)
+        miss.mean[i] <- mean(miss)
+        miss.max[i]  <- max(miss)
+        freq.min[i]  <- min(freq)
+        freq.mean[i] <- mean(freq)
+        freq.max[i]  <- max(freq)
+        U <- U*weights
+        V <- t(V*weights)*weights
+        if (max(V)-min(V) < sqrt(.Machine$double.eps)) {
+          burden.score <- sum(U)
+          burden.var <- sum(V)
+          burden.pval <- pchisq(burden.score^2/burden.var, df=1, lower.tail=FALSE)
+          if (Burden | SKATO | SMMAT) {
+            Burden.score[i] <- burden.score
+            Burden.var[i] <- burden.var
+            Burden.pval[i] <- burden.pval
+          }
+          if (SKAT | SKATO) {
+            SKAT.pval[i] <- burden.pval
+          }
+          if (SKATO) {
+            SKATO.pval[i] <- burden.pval
+            SKATO.minp[i] <- burden.pval
+            SKATO.minp.rho[i] <- 1
+          }
+          if (SMMAT) {
+            SMMAT.pval[i] <- burden.pval
+          }
+        } else {
+          if(SKATO) {
+            re <- .skato_pval(U = U, V = V, rho = rho, method = method)
+            Burden.score[i] <- re$Burden.score
+            Burden.var[i] <- re$Burden.var
+            Burden.pval[i] <- re$Burden.pval
+            SKAT.pval[i] <- re$SKAT.pval
+            SKATO.pval[i] <-re$p
+            SKATO.minp[i] <- re$minp
+            SKATO.minp.rho[i] <- re$minp.rho
+          } else {
+            if (SKAT) {
+              SKAT.pval[i] <- .quad_pval(U = U, V = V, method = method)
+            }
+            if (Burden | SMMAT) {
+              Burden.score[i] <- sum(U)
+              Burden.var[i] <- sum(V)
+              Burden.pval[i] <- pchisq(Burden.score[i]^2/Burden.var[i], df=1, lower.tail=FALSE)
+            }
+          }
+          if (SMMAT) {
+            V.rowSums <- rowSums(V)
+            U <- U - V.rowSums * Burden.score[i] / Burden.var[i]
+            V <- V - tcrossprod(V.rowSums) / Burden.var[i]
+            if (mean(abs(V)) < sqrt(.Machine$double.eps)) {
+              SMMAT.pval[i] <- Burden.pval[i]
+            } else {
+              SMMAT.pval[i] <- tryCatch(pchisq(-2*log(Burden.pval[i])-2*log(.quad_pval(U = U, V = V, method = method)), df = 4, lower.tail = FALSE), error = function(e) { Burden.pval[i] })
+            }
           }
         }
         rm(geno)
-        if(Garbage.Collection) {
-		  gc()
-		}
+        if (Garbage.Collection) {
+          gc()
+        }
       }
       SeqArray::seqClose(gds)
-      
-	  if (verbose) {
+        
+      if (verbose) {
         setTxtProgressBar(pb, n.groups)
         close(pb)
       }
-      
-	  if (!is.null(meta.file.prefix)) {
-	    close(meta.file.var.handle)
-	  }
+        
+      if (!is.null(meta.file.prefix)) {
+        close(meta.file.var.handle)
+      }
       tmp.out <- data.frame(group=unique(group.info$group)[idx], n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max)
       if (Burden | SKATO | SMMAT) {
         tmp.out$B.score <- Burden.score
@@ -317,24 +346,24 @@ SMMAT <- function(null.obj, geno.file, group.file,
         tmp.out$B.pval <- Burden.pval
       }
       if (SKAT | SKATO) {
-	    tmp.out$S.pval <- SKAT.pval
-	  }
+        tmp.out$S.pval <- SKAT.pval
+      }
       if (SKATO) {
         tmp.out$O.pval <- SKATO.pval
         tmp.out$O.minp <- SKATO.minp
         tmp.out$O.minp.rho <- SKATO.minp.rho
       }
       if (SMMAT) {
-	    tmp.out$E.pval <- SMMAT.pval
-	  }
+        tmp.out$E.pval <- SMMAT.pval
+      }
       tmp.out
     }
   } else { # use a single core
     n.groups <- n.groups.all
     if (verbose) {
       if(is.Windows) {
-		pb <- winProgressBar(min = 0, max = n.groups)
-	  } else {
+        pb <- winProgressBar(min = 0, max = n.groups)
+      } else {
         cat("Progress of SMMAT:\n")
         pb <- txtProgressBar(min = 0, max = n.groups, style = 3)
         cat("\n")
@@ -355,35 +384,40 @@ SMMAT <- function(null.obj, geno.file, group.file,
       Burden.pval <- rep(NA, n.groups)
     }
     if (SKAT | SKATO) {
-	  SKAT.pval <- rep(NA, n.groups)
-	}
+      SKAT.pval <- rep(NA, n.groups)
+    }
     if (SKATO) {
       SKATO.pval <- rep(NA, n.groups)
       SKATO.minp <- rep(NA, n.groups)
       SKATO.minp.rho <- rep(NA, n.groups)
     }
     if (SMMAT) {
-	  SMMAT.pval <- rep(NA, n.groups)
-	}
+      SMMAT.pval <- rep(NA, n.groups)
+    }
     if (!is.null(meta.file.prefix)) {
       if (class(null.obj) == "glmmkin.multi") {
-		stop("Error: meta-analysis not supported yet for multiple phenotypes.")
-	  }
+        stop("Error: meta-analysis not supported yet for multiple phenotypes.")
+      }
       if (.Platform$endian!="little") {
-		stop("Error: platform must be little endian.")
-	  }
+        stop("Error: platform must be little endian.")
+      }
       meta.file.score <- paste0(meta.file.prefix, ".score.1")
       meta.file.var <- paste0(meta.file.prefix, ".var.1")
-      write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE", "VAR", "PVAL")), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
+      write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE", "VAR", "PVAL")),
+                meta.file.score,
+                quote = FALSE,
+                row.names = FALSE,
+                col.names = FALSE
+      )
       meta.file.var.handle <- file(meta.file.var, "wb")
     }
     for (i in 1:n.groups) {
       if (verbose && i %% ceiling(n.groups/100) == 0) {
         if (is.Windows) {
-		  setWinProgressBar(pb, i, title=paste0("Progress of SMMAT: ",round(i/n.groups*100),"%"))
-		  } else {
-		  setTxtProgressBar(pb, i)
-		}
+          setWinProgressBar(pb, i, title=paste0("Progress of SMMAT: ",round(i/n.groups*100),"%"))
+        } else {
+          setTxtProgressBar(pb, i)
+        }
       }
       tmp.idx <- group.idx.start[i]:group.idx.end[i]
       tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
@@ -411,11 +445,11 @@ SMMAT <- function(null.obj, geno.file, group.file,
       }
       U <- as.vector(crossprod(geno, residuals))
       if (class(null.obj) == "glmmkin.multi") {
-		geno <- Diagonal(n = n.pheno) %x% geno
-	  }
+        geno <- Diagonal(n = n.pheno) %x% geno
+      }
       if (!is.null(null.obj$P)) {
-		V <- crossprod(geno, crossprod(null.obj$P, geno))
-	  } else {
+        V <- crossprod(geno, crossprod(null.obj$P, geno))
+      } else {
         GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
         V <- crossprod(geno, crossprod(null.obj$Sigma_i, geno)) - tcrossprod(GSigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
       }
@@ -450,16 +484,16 @@ SMMAT <- function(null.obj, geno.file, group.file,
           Burden.pval[i] <- burden.pval
         }
         if (SKAT | SKATO) {
-		  SKAT.pval[i] <- burden.pval
-		}
+          SKAT.pval[i] <- burden.pval
+        }
         if (SKATO) {
           SKATO.pval[i] <- burden.pval
           SKATO.minp[i] <- burden.pval
           SKATO.minp.rho[i] <- 1
         }
         if (SMMAT) {
-		  SMMAT.pval[i] <- burden.pval
-		}
+          SMMAT.pval[i] <- burden.pval
+        }
       } else {
         if (SKATO) {
           re <- .skato_pval(U = U, V = V, rho = rho, method = method)
@@ -472,8 +506,8 @@ SMMAT <- function(null.obj, geno.file, group.file,
           SKATO.minp.rho[i] <- re$minp.rho
         } else {
           if (SKAT) {
-			SKAT.pval[i] <- .quad_pval(U = U, V = V, method = method)
-		  }
+            SKAT.pval[i] <- .quad_pval(U = U, V = V, method = method)
+          }
           if (Burden | SMMAT) {
             Burden.score[i] <- sum(U)
             Burden.var[i] <- sum(V)
@@ -485,54 +519,60 @@ SMMAT <- function(null.obj, geno.file, group.file,
           U <- U - V.rowSums * Burden.score[i] / Burden.var[i]
           V <- V - tcrossprod(V.rowSums) / Burden.var[i]
           if (mean(abs(V)) < sqrt(.Machine$double.eps)) {
-			SMMAT.pval[i] <- Burden.pval[i]
-		  } else {
-			SMMAT.pval[i] <- tryCatch(pchisq(-2*log(Burden.pval[i])-2*log(.quad_pval(U = U, V = V, method = method)), df = 4, lower.tail = FALSE), error = function(e) { Burden.pval[i] })
-		  }
+            SMMAT.pval[i] <- Burden.pval[i]
+          } else {
+            SMMAT.pval[i] <- tryCatch(pchisq(-2*log(Burden.pval[i])-2*log(.quad_pval(U = U, V = V, method = method)), df = 4, lower.tail = FALSE), error = function(e) { Burden.pval[i] })
+          }
         }
       }
       rm(geno)
       if (Garbage.Collection) {
-		gc()
-	  }
+        gc()
+      }
     }
     SeqArray::seqClose(gds)
     if (verbose) {
       if (is.Windows) {
-		setWinProgressBar(pb, n.groups, title="Progress of SMMAT: 100%")
-	  } else {
-		setTxtProgressBar(pb, n.groups)
-	  }
+        setWinProgressBar(pb, n.groups, title="Progress of SMMAT: 100%")
+      } else {
+        setTxtProgressBar(pb, n.groups)
+      }
       close(pb)
     }
-    
-	if (!is.null(meta.file.prefix)) {
-	  close(meta.file.var.handle)
-	}
-    out <- data.frame(group=unique(group.info$group), n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max)
+  
+    if (!is.null(meta.file.prefix)) {
+      close(meta.file.var.handle)
+    }
+    out <- data.frame(group=unique(group.info$group),
+                      n.variants=n.variants,
+                      miss.min=miss.min,
+                      miss.mean=miss.mean,
+                      miss.max=miss.max,
+                      freq.min=freq.min,
+                      freq.mean=freq.mean,
+                      freq.max=freq.max
+    )
     if (Burden | SKATO | SMMAT) {
       out$B.score <- Burden.score
       out$B.var <- Burden.var
       out$B.pval <- Burden.pval
     }
     if (SKAT | SKATO) {
-	  out$S.pval <- SKAT.pval
-	}
+      out$S.pval <- SKAT.pval
+    }
     if (SKATO) {
       out$O.pval <- SKATO.pval
       out$O.minp <- SKATO.minp
       out$O.minp.rho <- SKATO.minp.rho
     }
     if(SMMAT) {
-	  out$E.pval <- SMMAT.pval
-	}
+      out$E.pval <- SMMAT.pval
+    }
   }
-  
-  out[match(groups, out$group), ] # return
+  return(out[match(groups, out$group), ]) # return
 }
 
-SMMAT.prep <- function(null.obj, geno.file, group.file, group.file.sep = "\t", auto.flip = FALSE)
-{
+SMMAT.prep <- function(null.obj, geno.file, group.file, group.file.sep = "\t", auto.flip = FALSE) {
   if(!class(null.obj) %in% c("glmmkin", "glmmkin.multi")) stop("Error: null.obj must be a class glmmkin or glmmkin.multi object!")
   n.pheno <- null.obj$n.pheno
   if(any(duplicated(null.obj$id_include))) {
